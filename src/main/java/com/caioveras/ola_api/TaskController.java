@@ -17,20 +17,21 @@ public class TaskController {
     }
 
     @GetMapping
-    public List<Task> listarTasks() {
-        return repository.findAll();
+    public List<TaskResponse> listarTasks() {
+        return repository.findAll().stream().map(TaskResponse::fromEntity).toList();
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Task> buscaTaskId(@PathVariable Long id) {
+    public ResponseEntity<TaskResponse> buscaTaskId(@PathVariable Long id) {
         return repository.findById(id)
+                .map(TaskResponse::fromEntity)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @PostMapping
-    public ResponseEntity<Task> salvarTask(@RequestBody Task task) {
-        var taskSalva = repository.save(task);
+    public ResponseEntity<TaskResponse> salvarTask(@RequestBody TaskRequest request) {
+        var taskSalva = repository.save(request.toEntity());
 
         URI uri = ServletUriComponentsBuilder
                 .fromCurrentRequest()   // pega a URL atual: /tasks
@@ -38,18 +39,24 @@ public class TaskController {
                 .buildAndExpand(taskSalva.getId())  // troca {id} pelo id real
                 .toUri();
 
-        return ResponseEntity.created(uri).body(taskSalva);
+        // Converte a entidade salva para o DTO de resposta
+        TaskResponse response = TaskResponse.fromEntity(taskSalva);
+
+        return ResponseEntity.created(uri).body(response);
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Task> atualizaTask(@PathVariable Long id, @RequestBody Task task) {
+    public ResponseEntity<TaskResponse> atualizaTask(@PathVariable Long id, @RequestBody TaskRequest request) {
         return repository.findById(id)
                 .map(taskExistente -> {
-                    taskExistente.setTitulo(task.getTitulo());
-                    taskExistente.setDescricao(task.getDescricao());
-                    taskExistente.setConcluido(task.isConcluido());
+                    taskExistente.setTitulo(request.titulo());
+                    taskExistente.setDescricao(request.descricao());
+                    taskExistente.setConcluido(request.concluido());
                     var taskSalva = repository.save(taskExistente);
-                    return ResponseEntity.ok(taskSalva);
+
+                    TaskResponse response = TaskResponse.fromEntity(taskSalva);
+
+                    return ResponseEntity.ok(response);
                 })
                 .orElse(ResponseEntity.notFound().build());// Status 404 caso não exista
     }

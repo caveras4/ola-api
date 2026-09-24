@@ -169,7 +169,27 @@ Então não são duas regras. `toEntity()` serve ao `POST` e não serve ao `PUT`
 `save()` decide `INSERT` ou `UPDATE` olhando o `id` da entidade que chega nele, e cada endpoint precisa
 entregar a entidade no estado certo.
 
-### 4. Por que validar o corpo na entrada, e não deixar para o banco
+### 4. Por que `concluido` é `boolean` e não `Boolean` no `TaskRequest`
+
+A diferença é uma letra maiúscula, e ela decide para onde vai o erro quando o cliente não manda o campo.
+O erro não some nem aparece: ele anda de camada.
+
+Com o primitivo `boolean`, um `PUT` sem `concluido` no corpo volta **400**. O Jackson tenta montar o
+record, não tem valor para pôr num `boolean`, que não aceita `null`, e se recusa a construir o objeto. O
+pedido morre na entrada, antes do controller, e a resposta diz a verdade: o cliente mandou um corpo
+incompleto.
+
+Com o wrapper `Boolean`, o Jackson constrói o record normalmente, com um buraco dentro: `concluido`
+vale `null`. O problema só aparece mais adiante, quando o controller passa esse valor para
+`setConcluido(boolean)` da entidade. Para caber no parâmetro primitivo, o `Boolean` precisa ser
+desempacotado, e desempacotar `null` lança `NullPointerException` ali mesmo, na linha que chama o
+setter. A resposta vira **500**: a culpa é do cliente, mas a API diz que o servidor falhou. O `POST` tem a
+mesma bomba armada, dentro do `toEntity()`.
+
+Por isso `boolean`. O objetivo não é evitar o erro, porque o cliente errou de qualquer jeito. É fazer o
+erro ser recusado na camada certa, com o status certo.
+
+### 5. Por que validar o corpo na entrada, e não deixar para o banco
 
 Depois da Semana 4 encontrei duas brechas no `TaskRequest`, e elas falhavam de jeitos diferentes. Um
 título de 300 caracteres chegava ao Postgres, que recusava por causa do `varchar(255)`: a API respondia

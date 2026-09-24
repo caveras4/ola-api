@@ -7,7 +7,7 @@ do projeto do zero e mapeamento de rotas); os endpoints `/tasks` são o CRUD com
 ## Tecnologias
 
 - Java 21
-- Spring Boot 4.1.0 (Spring Web MVC + Spring Data JPA)
+- Spring Boot 4.1.0 (Spring Web MVC + Spring Data JPA + Bean Validation)
 - PostgreSQL 18
 - Maven (via wrapper `./mvnw`, não precisa de instalação)
 
@@ -38,19 +38,22 @@ valor padrão `postgres` — então a senha real nunca precisa entrar no arquivo
 | GET    | `/ola`        | `Olá, Mundo!` |
 | GET    | `/ola/{nome}` | `Olá, {nome}` |
 
-### Tarefas (Semana 2–3)
+### Tarefas (Semanas 2–5)
 
-| Método | Rota          | Sucesso              | Erro |
-|--------|---------------|----------------------|------|
-| GET    | `/tasks`      | 200 (lista)          | —    |
-| GET    | `/tasks/{id}` | 200                  | 404  |
-| POST   | `/tasks`      | 201 + `Location`     | —    |
-| PUT    | `/tasks/{id}` | 200 (recurso salvo)  | 404  |
-| DELETE | `/tasks/{id}` | 204 (sem corpo)      | 404  |
+| Método | Rota          | Sucesso              | Erro      |
+|--------|---------------|----------------------|-----------|
+| GET    | `/tasks`      | 200 (lista)          | —         |
+| GET    | `/tasks/{id}` | 200                  | 404       |
+| POST   | `/tasks`      | 201 + `Location`     | 400       |
+| PUT    | `/tasks/{id}` | 200 (recurso salvo)  | 400 / 404 |
+| DELETE | `/tasks/{id}` | 204 (sem corpo)      | 404       |
 
-O `PUT` é uma **substituição integral** do recurso, como manda o verbo: campo ausente no corpo da
-requisição é gravado como vazio, não preservado. Para alterar um título sem perder a descrição,
-envie o objeto completo.
+Regras do corpo (`POST` e `PUT`): `titulo` é obrigatório, não pode ser em branco e tem até 100
+caracteres; `descricao` é opcional, com até 255; `concluido` é obrigatório. Quando uma regra de
+`titulo` ou `descricao` é quebrada, o 400 traz um mapa **campo → mensagem**. A validação roda antes do
+método do controller, então um `PUT /tasks/999` com título em branco devolve 400, não 404.
+
+O `PUT` é uma **substituição integral** do recurso, como manda o verbo: envie o objeto completo.
 
 ### Exemplos
 
@@ -66,8 +69,14 @@ curl -i http://localhost:8080/tasks/1
 # Listar todas
 curl http://localhost:8080/tasks
 
+# Criar com título em branco — 400 com o campo que falhou:
+# {"titulo":"não deve estar em branco"}
+curl -i -X POST http://localhost:8080/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"titulo":"   ","descricao":"x","concluido":false}'
+
 # Substituir a tarefa 1 — 200 com o recurso salvo, 404 se o id não existir.
-# Note que o corpo traz todos os campos: o que for omitido aqui é apagado.
+# Note que o corpo traz todos os campos.
 curl -i -X PUT http://localhost:8080/tasks/1 \
   -H "Content-Type: application/json" \
   -d '{"titulo":"estudar spring data","descricao":"semana 3","concluido":true}'
@@ -159,6 +168,37 @@ numa URL que o cliente afirmou já existir.
 Então não são duas regras. `toEntity()` serve ao `POST` e não serve ao `PUT` pela mesma razão única: o
 `save()` decide `INSERT` ou `UPDATE` olhando o `id` da entidade que chega nele, e cada endpoint precisa
 entregar a entidade no estado certo.
+
+### 4. Por que validar o corpo na entrada, e não deixar para o banco
+
+Depois da Semana 4 encontrei duas brechas no `TaskRequest`, e elas falhavam de jeitos diferentes. Um
+título de 300 caracteres chegava ao Postgres, que recusava por causa do `varchar(255)`: a API respondia
+**500** com `PSQLException`. Um problema do cliente, por enviar a informação dessa maneira, voltava
+como problema do servidor. Já um título `"     "` o banco aceitava: a API respondia **201** e gravava a
+task com título em branco. Esse é o pior dos dois, porque o 201 esconde o erro e o lixo fica no banco.
+O 500 pelo menos aparece; o 201 diz que deu tudo certo, e ninguém investiga.
+
+Coloquei as regras no próprio `TaskRequest`: `@NotBlank` no `titulo`, que recusa nulo, vazio e só
+espaços, e `@Size` nos dois campos. Os limites são diferentes de propósito. 100 no título é regra de
+negócio minha, não limite do banco. 255 na descrição é o teto da coluna. A regra que amarra os dois: o
+limite do DTO tem que ser menor ou igual ao da coluna, senão a faixa entre os dois volta a dar 500.
+
+Só as anotações não bastaram. Sem `@Valid` no parâmetro, o `POST` com título em branco continuou dando
+201 e gravando lixo: as regras estavam escritas, mas ninguém as conferia. Com `@Valid` no `POST` e no
+`PUT`, o pedido passou a ser recusado com **400** antes de o método do controller rodar, e nada foi
+gravado.
+
+Faltava o cliente saber o que errou. O 400 padrão só traz `timestamp`, `status`, `error` e `path`, e o
+motivo ficava no console da aplicação. Para que o cliente não tenha que ficar adivinhando, criei o
+`GlobalExceptionHandler`. O `@RestControllerAdvice` na classe faz ela vigiar as exceções de todos os
+controllers; o `@ExceptionHandler(MethodArgumentNotValidException.class)` no método diz que ele cuida da
+exceção que o `@Valid` lança. O método percorre os erros de campo e monta um mapa **nome do campo →
+mensagem**. Com isso a mensagem saiu do console da aplicação e voltou ao cliente, informando onde ele
+está errando.
+
+Limite conhecido: o mapa guarda uma mensagem por campo. Um título de 101 espaços quebra o `@NotBlank` e
+o `@Size` ao mesmo tempo, e o segundo `put` com a chave `titulo` sobrescreve o primeiro. Qual das duas
+mensagens sobrevive depende da ordem em que os erros chegam, e essa ordem não é garantida.
 
 ## Autor
 

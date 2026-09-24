@@ -1,5 +1,6 @@
 package com.caioveras.ola_api;
 
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
@@ -30,7 +31,7 @@ public class TaskController {
     }
 
     @PostMapping
-    public ResponseEntity<TaskResponse> salvarTask(@RequestBody TaskRequest request) {
+    public ResponseEntity<TaskResponse> salvarTask(@RequestBody @Valid TaskRequest request) {
         var taskSalva = repository.save(request.toEntity());
 
         URI uri = ServletUriComponentsBuilder
@@ -46,7 +47,7 @@ public class TaskController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<TaskResponse> atualizaTask(@PathVariable Long id, @RequestBody TaskRequest request) {
+    public ResponseEntity<TaskResponse> atualizaTask(@PathVariable Long id, @RequestBody @Valid TaskRequest request) {
         return repository.findById(id)
                 .map(taskExistente -> {
                     taskExistente.setTitulo(request.titulo());
@@ -58,13 +59,13 @@ public class TaskController {
 
                     return ResponseEntity.ok(response);
                 })
-                .orElse(ResponseEntity.notFound().build());// Status 404 caso não exista
+                .orElse(ResponseEntity.notFound().build());// Status 404
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deletaTask(@PathVariable Long id) {
         if (!repository.existsById(id)) {
-            return ResponseEntity.notFound().build();// Status 404 caso não exista
+            return ResponseEntity.notFound().build();// Status 404
         }
 
         repository.deleteById(id);
